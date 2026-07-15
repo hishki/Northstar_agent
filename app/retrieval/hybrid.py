@@ -12,7 +12,7 @@ from app.config import AppConfig
 from app.retrieval.bm25 import BM25Index
 from app.retrieval.embeddings import EmbeddingIndex
 from app.retrieval.reranker import Reranker
-from app.schemas import DocChunk, SearchResult
+from app.schemas import DocChunk, DocumentContext, SearchResult
 
 
 def _tag_conflicts(results: list[SearchResult]) -> list[SearchResult]:
@@ -59,17 +59,32 @@ class HybridRetriever:
         self._embeddings = EmbeddingIndex(config)
         self._reranker = Reranker(config)
         self._chunks_by_id: dict[str, DocChunk] = {}
+        # Chunks grouped by source file, in the same order `load_chunks()`
+        # emitted them (preamble first, then "## " sections top-to-bottom)
+        # -- this is document order, not retrieval-score order, so it's
+        # what lets `get_document_context` find the *adjacent* section.
+        self._chunks_by_source: dict[str, list[DocChunk]] = {}
 
     def index(self, chunks: list[DocChunk]) -> None:
         self._chunks_by_id = {c.chunk_id: c for c in chunks}
+        self._chunks_by_source = {}
+        for chunk in chunks:
+            self._chunks_by_source.setdefault(chunk.source, []).append(chunk)
         mode = self._config.retrieval.mode
         if mode in ("bm25", "hybrid"):
             self._bm25.build(chunks)
         if mode in ("embeddings", "hybrid"):
             self._embeddings.build(chunks)
 
-    def get_document_context(self, chunk_id: str) -> Optional[DocChunk]:
-        return self._chunks_by_id.get(chunk_id)
+    def get_document_context(self, chunk_id: str) -> Optional[DocumentContext]:
+        chunk = self._chunks_by_id.get(chunk_id)
+        if chunk is None:
+            return None
+        siblings = self._chunks_by_source.get(chunk.source, [])
+        idx = next(i for i, c in enumerate(siblings) if c.chunk_id == chunk_id)
+        previous = siblings[idx - 1] if idx > 0 else None
+        next_chunk = siblings[idx + 1] if idx + 1 < len(siblings) else None
+        return DocumentContext(chunk=chunk, previous=previous, next=next_chunk)
 
     def search_documents(
         self,

@@ -15,9 +15,10 @@ search_documents: |
   document you need; otherwise leave it unset to search everything.
 
 get_document_context: |
-  Fetch the full text of one specific document chunk by its chunk_id (as
-  returned by search_documents), e.g. to read more context around a passage
-  you already found.
+  Fetch one specific document chunk by its chunk_id (as returned by
+  search_documents) together with the section immediately before and after
+  it in that same document -- use this when a passage you already found
+  looks like it continues into, or depends on, a neighboring section.
 
 query_plan_data: |
   Look up a Northstar Cloud customer's full subscription/plan record by

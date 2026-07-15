@@ -54,6 +54,17 @@ class DocChunk(BaseModel):
     suspicious: bool = False
 
 
+class DocumentContext(BaseModel):
+    """A chunk plus its immediate neighbors (previous/next section in the
+    same source document, in document order) -- what `get_document_context`
+    returns so it actually provides *more* context than the single chunk
+    `search_documents` already returned, instead of just echoing it back."""
+
+    chunk: DocChunk
+    previous: Optional[DocChunk] = None
+    next: Optional[DocChunk] = None
+
+
 class SearchResult(BaseModel):
     chunk: DocChunk
     score: float

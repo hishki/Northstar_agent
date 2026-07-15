@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Optional
 
-from app.schemas import Customer, DocChunk, Plan, SearchResult, SourceInfo
+from app.schemas import Customer, DocChunk, DocumentContext, Plan, SearchResult, SourceInfo
 
 
 class FakeStructuredStore:
@@ -87,9 +87,13 @@ class FakeDocumentStore:
 class FakeRetriever:
     def __init__(self) -> None:
         self._chunks: dict[str, DocChunk] = {}
+        self._chunks_by_source: dict[str, list[DocChunk]] = {}
 
     def index(self, chunks: list[DocChunk]) -> None:
         self._chunks = {c.chunk_id: c for c in chunks}
+        self._chunks_by_source = {}
+        for chunk in chunks:
+            self._chunks_by_source.setdefault(chunk.source, []).append(chunk)
 
     def search_documents(
         self,
@@ -104,8 +108,15 @@ class FakeRetriever:
             results.append(SearchResult(chunk=chunk, score=1.0, rank=rank))
         return results
 
-    def get_document_context(self, chunk_id: str) -> Optional[DocChunk]:
-        return self._chunks.get(chunk_id)
+    def get_document_context(self, chunk_id: str) -> Optional[DocumentContext]:
+        chunk = self._chunks.get(chunk_id)
+        if chunk is None:
+            return None
+        siblings = self._chunks_by_source.get(chunk.source, [])
+        idx = next(i for i, c in enumerate(siblings) if c.chunk_id == chunk_id)
+        previous = siblings[idx - 1] if idx > 0 else None
+        next_chunk = siblings[idx + 1] if idx + 1 < len(siblings) else None
+        return DocumentContext(chunk=chunk, previous=previous, next=next_chunk)
 
 
 class FakeSanitizer:

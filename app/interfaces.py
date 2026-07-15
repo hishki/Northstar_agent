@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any, Optional, Protocol, runtime_checkable
 
-from app.schemas import Customer, DocChunk, Plan, SearchResult, SourceInfo
+from app.schemas import Customer, DocChunk, DocumentContext, Plan, SearchResult, SourceInfo
 
 
 @runtime_checkable
@@ -72,8 +72,10 @@ class Retriever(Protocol):
         top_k: int = 5,
     ) -> list[SearchResult]: ...
 
-    def get_document_context(self, chunk_id: str) -> Optional[DocChunk]:
-        """Fetch a single chunk by ID for follow-up/citation-detail lookups."""
+    def get_document_context(self, chunk_id: str) -> Optional[DocumentContext]:
+        """Fetch a chunk by ID plus its previous/next section from the same
+        document, for follow-up/citation-detail lookups that need more
+        context than the single chunk `search_documents` already returned."""
         ...
 
 

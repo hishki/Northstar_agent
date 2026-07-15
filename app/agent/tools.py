@@ -72,16 +72,24 @@ def build_tools(
     @tool
     def get_document_context(chunk_id: str) -> dict:
         """See prompts/tool_descriptions.yaml -- overridden below."""
-        chunk = retriever.get_document_context(chunk_id)
-        if chunk is None:
+        ctx = retriever.get_document_context(chunk_id)
+        if ctx is None:
             return {"error": f"No chunk found with chunk_id={chunk_id!r}"}
+        chunk = ctx.chunk
+        # Surround the requested chunk with its neighboring section(s) from
+        # the same document (document order) -- this is what makes the tool
+        # actually return *more* than the single chunk `search_documents`
+        # already gave the model, instead of just echoing it back.
+        neighbors = [c for c in (ctx.previous, chunk, ctx.next) if c is not None]
         return {
             "chunk_id": chunk.chunk_id,
             "source": chunk.source,
             "section": chunk.section,
             "effective_date": chunk.effective_date.isoformat() if chunk.effective_date else None,
-            "suspicious": sanitizer.is_suspicious(chunk.text),
-            "content": sanitizer.wrap(chunk),
+            "previous_section": ctx.previous.section if ctx.previous else None,
+            "next_section": ctx.next.section if ctx.next else None,
+            "suspicious": any(sanitizer.is_suspicious(c.text) for c in neighbors),
+            "content": "\n\n".join(sanitizer.wrap(c) for c in neighbors),
         }
 
     @tool
