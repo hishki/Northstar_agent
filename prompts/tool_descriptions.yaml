@@ -1,0 +1,42 @@
+# Model-facing tool descriptions -- these are prompts too (they directly
+# shape when/how the model calls each tool), kept out of app/agent/tools.py
+# so they can be tuned without touching code. Loaded by
+# app/agent/prompts.py::load_tool_descriptions and applied to each tool's
+# `.description` before it's bound to the chat model.
+#
+# Keep each one short and explicit about *when* to call the tool, not just
+# what it does -- that "when" framing measurably improves should-call rate
+# for models that are conservative about reaching for tools.
+
+search_documents: |
+  Search Northstar Cloud's product, security, incident-response, and policy
+  documents for passages relevant to `query`. Pass `source` (an exact
+  filename, e.g. "refund_policy_2026.md") only if you already know which
+  document you need; otherwise leave it unset to search everything.
+
+get_document_context: |
+  Fetch the full text of one specific document chunk by its chunk_id (as
+  returned by search_documents), e.g. to read more context around a passage
+  you already found.
+
+query_plan_data: |
+  Look up a Northstar Cloud customer's full subscription/plan record by
+  customer_id (e.g. "CUST-1003"): plan tier, support entitlements
+  (including dedicated_tam and premium_support), region, retention period,
+  and any customer-specific contract overrides (e.g. migration-hours
+  override). Always returns every field on the record -- there is no way
+  to filter it, so call this whenever any of that record might be
+  relevant rather than guessing from documents alone.
+
+list_sources: |
+  List every document and structured data file available to answer
+  questions from.
+
+submit_answer: |
+  Call this exactly once, as your final action, to give your answer.
+  `citations` is a list of objects (empty list if none apply), one per
+  source that materially supports a specific claim in `answer` -- only cite
+  a source you actually retrieved via another tool call in this
+  conversation, never invent one. Pass an empty citations list for an
+  abstention or if nothing you retrieved actually supports the answer. Do
+  not call any other tool after this one.

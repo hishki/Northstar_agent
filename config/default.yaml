@@ -1,0 +1,56 @@
+# Northstar Cloud agent -- technology configuration.
+#
+# This file is the single place where "which technology" decisions live.
+# Secrets and connection endpoints (API keys, service URLs) stay in
+# environment variables / .env -- never commit them here. Each *_env field
+# below names the environment variable that supplies the corresponding
+# connection detail at runtime.
+#
+# To migrate to a different technology: implement the new backend against
+# the matching Protocol in app/interfaces.py, add a branch for it in
+# app/factory.py, then flip the provider field here. No other code changes.
+
+llm:
+  provider: ollama          # ollama | anthropic | openai
+  model: qwen2.5:7b-instruct
+  base_url_env: OLLAMA_BASE_URL   # default http://localhost:11434 if unset
+  temperature: 0
+
+vector_store:
+  provider: qdrant          # qdrant (only backend implemented so far)
+  url_env: QDRANT_URL       # unset -> in-memory Qdrant (":memory:"), fine for tests/dev
+  collection: northstar_chunks
+
+embeddings:
+  provider: sentence-transformers   # sentence-transformers (only backend implemented so far)
+  model: sentence-transformers/all-MiniLM-L6-v2
+
+retrieval:
+  mode: hybrid              # bm25 | embeddings | hybrid
+  top_k: 5
+  rrf_k: 60                 # Reciprocal Rank Fusion constant
+  reranker:
+    enabled: true
+    model: cross-encoder/ms-marco-MiniLM-L-6-v2
+    pool_size: 20           # candidates reranked before the final top_k cut
+
+chunking:
+  strategy: heading         # split markdown on "## " headings
+
+sanitizer:
+  enabled: true
+
+data:
+  documents_dir: data/documents
+  structured_dir: data/structured
+
+auth:
+  enabled: true
+  keys_env: AGENT_API_KEYS  # "key1:agent_id1,key2:agent_id2" pairs
+
+observability:
+  provider: langfuse        # langfuse | none
+  enabled: true
+  public_key_env: LANGFUSE_PUBLIC_KEY
+  secret_key_env: LANGFUSE_SECRET_KEY
+  host_env: LANGFUSE_HOST   # unset -> Langfuse SDK default (cloud.langfuse.com)

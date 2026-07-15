@@ -1,0 +1,6 @@
+customer_id,customer_name,plan_id,premium_support,dedicated_tam,region,contract_start,contract_end,post_cancel_retention_days,migration_hours_override
+CUST-1001,Acme Retail,BUSINESS,true,false,US,2026-01-01,2026-12-31,30,
+CUST-1002,Bluebird Health,ENTERPRISE,false,false,US,2026-02-15,2027-02-14,120,60
+CUST-1003,Cedar Finance,ENTERPRISE_PLUS,false,true,EU,2026-03-01,2027-02-28,90,
+CUST-1004,Delta Labs,STARTER,false,false,US,2026-06-01,2026-08-31,30,
+CUST-1005,Evergreen Media,BUSINESS,false,false,EU,2025-10-01,2026-09-30,45,20

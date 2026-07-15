@@ -1,0 +1,19 @@
+{
+  "request": {
+    "message": "Does Cedar Finance have a dedicated TAM?",
+    "conversation_id": "demo-123",
+    "customer_id": "CUST-1003"
+  },
+  "response": {
+    "answer": "Yes. Cedar Finance has a dedicated technical account manager.",
+    "citations": [
+      {
+        "source": "customers.csv",
+        "record_id": "CUST-1003",
+        "excerpt": "dedicated_tam=true"
+      }
+    ],
+    "grounded": true,
+    "latency_ms": 0
+  }
+}

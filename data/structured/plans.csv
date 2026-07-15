@@ -1,0 +1,5 @@
+plan_id,plan_name,monthly_price_usd,support_hours,uptime_target,pdf_export,saml_sso,scim,default_audit_log_days
+STARTER,Starter,49,business_hours,none,false,false,false,30
+BUSINESS,Business,499,24x5,99.9%,true,true,false,90
+ENTERPRISE,Enterprise,custom,24x7,99.95%,true,true,true,365
+ENTERPRISE_PLUS,Enterprise Plus,custom,24x7,99.95%,true,true,true,365

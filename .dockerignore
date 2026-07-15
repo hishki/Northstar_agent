@@ -1,0 +1,13 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.env
+evals/results.json
+evals/report.md
+# Anchored to repo root -- unanchored "*.md" would also match data/documents/*.md,
+# which is the corpus the agent needs to load inside the container.
+/*.md
+!/README.md

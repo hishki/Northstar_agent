@@ -1,0 +1,64 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  # Default: api talks to Ollama running natively on the host (see README --
+  # "Quickstart" for install/pull steps). On Apple Silicon this gets GPU
+  # acceleration via Metal; Docker Desktop cannot pass the host GPU through
+  # to a containerized Ollama at all, so a fully-dockerized Ollama (below)
+  # is CPU-only and ~10-20x slower for a 7B model on the same hardware.
+  api:
+    build: .
+    depends_on:
+      qdrant:
+        condition: service_started
+    environment:
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - QDRANT_URL=http://qdrant:6333
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8000:8000"
+
+  # Optional, fully-dockerized Ollama for anyone who'd rather not install
+  # anything natively (e.g. no Apple Silicon GPU to take advantage of
+  # anyway, or a from-scratch "just run one command" demo). Not started by
+  # default -- bring it up explicitly with the "dockerized-ollama" profile:
+  #
+  #   docker compose --profile dockerized-ollama up --build \
+  #     -e OLLAMA_BASE_URL=http://ollama:11434
+  #
+  # or simpler, override the api service's OLLAMA_BASE_URL in a .env file
+  # to http://ollama:11434 before running with this profile.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["dockerized-ollama"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # One-shot: pulls the default model on first startup (~5GB). Re-running is
+  # a no-op once the model is already present in the ollama_data volume.
+  ollama-pull:
+    image: ollama/ollama:latest
+    profiles: ["dockerized-ollama"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=ollama:11434
+    entrypoint: ["ollama", "pull", "qwen2.5:7b-instruct"]
+
+volumes:
+  qdrant_data:
+  ollama_data:
