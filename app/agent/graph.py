@@ -352,6 +352,26 @@ def build_agent_graph(
     return graph.compile(checkpointer=MemorySaver())
 
 
+def _stream_step_detail(node_name: str, node_output: dict) -> str:
+    """Human-readable one-liner for a single `stream_mode="updates"` step,
+    used by `AgentRuntime.chat_stream` so `/chat/stream` clients see *something*
+    meaningful per node execution instead of a blank screen. Deliberately not
+    exhaustive/precise about what the agent node is about to do next (we only
+    learn that from the *following* step), just enough to show progress."""
+    if node_name == "tools":
+        names = [record.tool_name for record in node_output.get("tool_call_log", []) or []]
+        return f"called {', '.join(names)}" if names else "ran tools"
+    if node_name == "agent":
+        return "thinking"
+    if node_name == "remind":
+        return "did not call submit_answer yet; nudging it to finish"
+    if node_name == "force_submit":
+        return "forcing a structured final answer"
+    if node_name == "validate_citations":
+        return "verifying citations"
+    return node_name
+
+
 class AgentRuntime:
     """Owns the compiled graph plus the indexed retriever, and is the single
     entry point the API layer calls."""
@@ -398,6 +418,73 @@ class AgentRuntime:
         )
         token_usage = aggregate_token_usage(result.get("messages", []))
         return response, list(result.get("tool_call_log", [])), token_usage
+
+    def chat_stream(self, message: str, conversation_id: str, customer_id: Optional[str] = None):
+        """Streaming variant of `chat_with_trace` for `POST /chat/stream`
+        (Phase 1: progress events, not token-level answer streaming -- see
+        `app/api.py`'s docstring on that endpoint for why). A generator
+        yielding plain dicts:
+
+          - `{"type": "step", "node": <node name>, "detail": <str>}` once per
+            LangGraph node execution (`self._graph.stream(..., stream_mode=
+            "updates")` yields `{node_name: node_output}` per step -- see
+            `build_agent_graph`'s docstring for the node names/shape).
+          - Exactly one final `{"type": "done", "response": <AgentResponse as
+            dict>, "tool_call_log": [...], "token_usage": {...}}` once the
+            graph reaches END.
+
+        `stream_mode="updates"` gives incremental per-node output, not the
+        final merged state directly. Rather than accumulate/merge that by
+        hand (duplicating LangGraph's own state-reducer logic -- e.g.
+        `messages`'s `add_messages`/`tool_call_log`'s `operator.add` from
+        `app/agent/state.py` -- and risking it drifting out of sync), this
+        fetches the authoritative final state via
+        `CompiledStateGraph.get_state(config)` once the stream is exhausted,
+        keyed by the same `thread_id` config used for the streamed run (the
+        graph is compiled with a checkpointer, `MemorySaver`, precisely so
+        this works -- confirmed against the installed langgraph version in
+        this project's `.venv` by introspecting `CompiledStateGraph`).
+
+        Reuses the exact same module-level extraction/verification helpers
+        `chat_with_trace` relies on (`_extract_submitted_answer`,
+        `_collect_known_sources`, `_verify_citations`, via
+        `validate_citations_node` inside the graph itself, plus
+        `aggregate_token_usage` here) so streaming and non-streaming callers
+        can never disagree about what counts as a turn's final answer.
+        """
+        start = time.monotonic()
+        config = {"configurable": {"thread_id": conversation_id}}
+        init_state = {
+            "messages": [_build_human_message(message, customer_id)],
+            "tool_call_log": [],
+            "loop_count": 0,
+            "submitted": False,
+            "remind_count": 0,
+            "customer_id": customer_id,
+        }
+        for step in self._graph.stream(init_state, config=config, stream_mode="updates"):
+            for node_name, node_output in step.items():
+                yield {
+                    "type": "step",
+                    "node": node_name,
+                    "detail": _stream_step_detail(node_name, node_output),
+                }
+
+        result = self._graph.get_state(config).values
+        latency_ms = (time.monotonic() - start) * 1000
+        response = AgentResponse(
+            answer=result.get("final_answer") or "",
+            citations=result.get("final_citations") or [],
+            grounded=bool(result.get("grounded")),
+            latency_ms=latency_ms,
+        )
+        token_usage = aggregate_token_usage(result.get("messages", []))
+        yield {
+            "type": "done",
+            "response": response.model_dump(),
+            "tool_call_log": list(result.get("tool_call_log", [])),
+            "token_usage": token_usage,
+        }
 
 
 def aggregate_token_usage(messages: list) -> dict[str, int]:

@@ -12,8 +12,10 @@ A grounded RAG chat agent for **Northstar Cloud**, a fictional B2B analytics pla
 | LLM | Local, via [Ollama](https://ollama.com) — default `qwen2.5:7b-instruct` | `llm.provider`, `llm.model` |
 | Vector store | [Qdrant](https://qdrant.tech) (own Docker service, or `:memory:` for tests/dev) | `vector_store.provider` |
 | Embeddings | `sentence-transformers` (`all-MiniLM-L6-v2` by default) | `embeddings.model` |
-| Lexical retrieval | `rank_bm25`, fused with embeddings via Reciprocal Rank Fusion | `retrieval.mode` |
-| API | FastAPI | — |
+| Lexical retrieval | `rank_bm25` + stemming, fused with embeddings via Reciprocal Rank Fusion, reranked by a cross-encoder | `retrieval.mode`, `retrieval.reranker.*` |
+| Auth | Bearer API key per support agent (`app/security/auth.py`) | `auth.*`, `AGENT_API_KEYS` env var |
+| Tracing | [Langfuse](https://langfuse.com) (per-turn trace + per-tool-call span; no-ops gracefully if unconfigured) | `observability.*`, `LANGFUSE_*` env vars |
+| API | FastAPI (`POST /chat`, `POST /chat/stream` for SSE progress events, `GET /sources`) | — |
 | Packaging | Docker Compose (`qdrant` + `api` by default; optional fully-dockerized `ollama`) | — |
 
 **Every one of these is a config field, not a hardcoded import** — see [Configuration](#configuration).
@@ -32,19 +34,27 @@ ollama pull qwen2.5:7b-instruct
 docker compose up --build
 ```
 
-Once it's up:
+Once it's up, set an agent API key (see `.env.example` for the `AGENT_API_KEYS` format — `key:agent_id` pairs) and pass it as a bearer token:
 
 ```sh
-curl -s localhost:8000/chat -H 'content-type: application/json' -d '{
+curl -s localhost:8000/chat -H 'content-type: application/json' -H 'authorization: Bearer sk-dev-key' -d '{
   "message": "Does Cedar Finance have a dedicated TAM?",
   "conversation_id": "demo-123",
   "customer_id": "CUST-1003"
 }' | python3 -m json.tool
 
-curl -s localhost:8000/sources | python3 -m json.tool
+curl -s localhost:8000/sources -H 'authorization: Bearer sk-dev-key' | python3 -m json.tool
+
+# SSE progress-event stream (see DESIGN.md -- this streams which tool is
+# running while the turn is in flight, not the answer text token-by-token):
+curl -N -s localhost:8000/chat/stream -H 'content-type: application/json' -H 'authorization: Bearer sk-dev-key' -d '{
+  "message": "Does Cedar Finance have a dedicated TAM?",
+  "conversation_id": "demo-124",
+  "customer_id": "CUST-1003"
+}'
 ```
 
-The response shape matches [`sample_api_contract.json`](sample_api_contract.json).
+`/chat`'s response shape matches [`sample_api_contract.json`](sample_api_contract.json). Set `auth.enabled: false` in `config/default.yaml` (or leave `AGENT_API_KEYS` unset with auth left enabled, which 401s) to skip auth locally — see `DESIGN.md`'s Security considerations for the authorization model.
 
 ## Quickstart — fully local (no Docker at all)
 
@@ -98,6 +108,9 @@ docker compose up -d qdrant ollama    # or: ollama serve && ollama pull qwen2.5:
 | `test_10_orchestrator_unit.py` / `test_10_orchestrator_live.py` | LangGraph loop, citation verification, abstention, loop-limit guard (scripted, no model) / real end-to-end (live, skipped by default) |
 | `test_11_api.py` | `POST /chat` / `GET /sources` shape (orchestrator stubbed via FastAPI dependency override) |
 | `test_12_eval_harness.py` | Every eval metric's math, against synthetic fixtures |
+| `test_13_reranker.py` | Cross-encoder reranker promotes the correct chunk over the fused BM25+embeddings pool; disabled/failed-load falls back to plain RRF |
+| `test_14_auth.py` | `require_agent` 401 cases, valid-key success, `auth.enabled=False` bypass, conversation-id agent-namespacing isolation, Langfuse tracing invoked with correct fields, graceful no-op with Langfuse unconfigured |
+| `test_15_streaming.py` | `POST /chat/stream` SSE event shape, parity with non-streaming `/chat`'s final response, auth enforcement on the streaming endpoint |
 
 ## Evaluation
 
@@ -149,4 +162,4 @@ sample_conversations.md   example conversations (see file header for how they we
 
 ## Known limitations
 
-See [DESIGN.md](DESIGN.md#limitations) for the full list. The short version: citation-source attribution for structured data collapses to `customers.csv` even though `plans.csv` also contributes fields; the injection heuristic is phrase/regex-based (won't catch obfuscated/translated attacks, though the untrusted-content wrapping and the model's own instruction-following are the real backstop); grounded-answer correctness defaults to a keyword-overlap heuristic against the eval questions' `notes` field rather than an exact-answer check, since the assignment forbids hard-coded expected answers; token-usage reporting depends on the LLM provider populating `usage_metadata`, which isn't guaranteed on every Ollama/model version.
+See [DESIGN.md](DESIGN.md#limitations) for the full list. The short version: authorization is broad (any authenticated agent can query any customer, audit-logged but not row-restricted — matches the actual domain, see DESIGN.md for why); citation-source attribution for structured data collapses to `customers.csv` even though `plans.csv` also contributes fields; the injection heuristic is phrase/regex-based (won't catch obfuscated/translated attacks, though the untrusted-content wrapping and the model's own instruction-following are the real backstop); grounded-answer correctness defaults to a keyword-overlap heuristic against the eval questions' `notes` field rather than an exact-answer check, since the assignment forbids hard-coded expected answers; token-usage reporting depends on the LLM provider populating `usage_metadata`, which isn't guaranteed on every Ollama/model version; streaming is progress-events only, not token-level answer streaming; auth is a flat shared-key scheme, not a real identity provider.
