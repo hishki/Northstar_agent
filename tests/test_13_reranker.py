@@ -136,3 +136,46 @@ def test_reranker_rerank_returns_empty_list_for_no_candidates():
     reranker = Reranker(config)
 
     assert reranker.rerank(_QUERY, []) == []
+
+
+def test_search_result_carries_both_rrf_and_rerank_scores_when_enabled(monkeypatch):
+    """With the reranker enabled and actually producing an ordering, every
+    result must carry both scores distinctly -- not just whichever one
+    happened to win -- so a caller (or a Langfuse trace of the
+    search_documents tool call, see app/agent/tools.py) can see the RRF
+    ranking a chunk would have gotten alongside the cross-encoder's
+    judgment, not just the final effective `score`."""
+    monkeypatch.delenv("QDRANT_URL", raising=False)
+    config = _config_with_reranker_enabled(enabled=True)
+    retriever = HybridRetriever(config)
+    retriever.index(_load_real_chunks(config))
+
+    results = retriever.search_documents(_QUERY, top_k=5)
+
+    assert results, "expected at least one result"
+    for r in results:
+        assert isinstance(r.rrf_score, float)
+        assert isinstance(r.rerank_score, float)
+        # The effective `score` used for ordering must be the reranker's
+        # score here, not silently the RRF one -- otherwise a caller reading
+        # `score` alone would think RRF (not the reranker) picked this order.
+        assert r.score == r.rerank_score
+
+
+def test_search_result_rerank_score_is_none_when_reranker_disabled(monkeypatch):
+    """With the reranker off, results must still carry `rrf_score` (the only
+    ranking signal in play) but `rerank_score` must be None, not some stale
+    or fabricated value -- None is the caller's signal that no reranking
+    happened for this call."""
+    monkeypatch.delenv("QDRANT_URL", raising=False)
+    config = _config_with_reranker_enabled(enabled=False)
+    retriever = HybridRetriever(config)
+    retriever.index(_load_real_chunks(config))
+
+    results = retriever.search_documents(_QUERY, top_k=5)
+
+    assert results, "expected at least one result"
+    for r in results:
+        assert isinstance(r.rrf_score, float)
+        assert r.rerank_score is None
+        assert r.score == r.rrf_score

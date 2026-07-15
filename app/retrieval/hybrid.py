@@ -132,7 +132,12 @@ class HybridRetriever:
         # a chance to be promoted by a smarter relevance judgment. This has
         # to happen ahead of the RRF-based `sorted(...)` truncation -- once
         # that's cut to top_k, candidates outside it are already gone.
-        ordered: list[tuple[str, float]] | None = None
+        # None (not just "not use_reranker") tracks whether *this specific
+        # call* actually got a reranked ordering back, as opposed to falling
+        # back to plain RRF -- that distinction is what lets the final loop
+        # below correctly leave `rerank_score` unset on a fallback rather
+        # than mislabeling an RRF score as a reranker score.
+        rerank_scores: dict[str, float] | None = None
         if use_reranker:
             pool_ids: dict[str, None] = {}
             for ranked in ranked_lists:
@@ -145,9 +150,11 @@ class HybridRetriever:
             ]
             reranked = self._reranker.rerank(query, candidates)
             if reranked is not None:
-                ordered = reranked
+                rerank_scores = dict(reranked)
 
-        if ordered is None:
+        if rerank_scores is not None:
+            ordered = sorted(rerank_scores.items(), key=lambda pair: pair[1], reverse=True)
+        else:
             # Plain RRF ordering: reranker disabled, not applicable (single
             # mode), or the reranker failed to load/score (best-effort
             # fallback -- see `Reranker.rerank`'s docstring).
@@ -161,7 +168,15 @@ class HybridRetriever:
                 continue
             if source_filter is not None and chunk.source != source_filter:
                 continue
-            results.append(SearchResult(chunk=chunk, score=score, rank=len(results)))
+            results.append(
+                SearchResult(
+                    chunk=chunk,
+                    score=score,
+                    rank=len(results),
+                    rrf_score=fused_scores.get(chunk_id),
+                    rerank_score=rerank_scores.get(chunk_id) if rerank_scores is not None else None,
+                )
+            )
             if len(results) >= top_k:
                 break
 

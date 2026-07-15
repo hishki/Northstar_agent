@@ -67,7 +67,22 @@ class DocumentContext(BaseModel):
 
 class SearchResult(BaseModel):
     chunk: DocChunk
+    # The score actually used to order/select this result -- equals
+    # rerank_score when the reranker ran and produced an ordering, else
+    # rrf_score (or, in single-mode bm25/embeddings, that retriever's raw
+    # score). Kept as the one field every existing caller already reads.
     score: float
+    # Reciprocal Rank Fusion score from BM25+embeddings (the pre-rerank
+    # ranking signal); in single-mode retrieval this is that retriever's own
+    # raw score instead, since there's no fusion to speak of. None only if
+    # the chunk somehow isn't present in either candidate list (shouldn't
+    # happen in practice -- every result here came from one of those lists).
+    rrf_score: Optional[float] = None
+    # Cross-encoder relevance score, set only when config.retrieval.reranker
+    # was enabled AND actually produced an ordering for this search call
+    # (None if reranking was disabled, not applicable in single-mode, or the
+    # reranker failed to load/score and the caller fell back to plain RRF).
+    rerank_score: Optional[float] = None
     rank: int
     # Set within a doc_family group: True for the chunk with the latest
     # effective_date, False for older ones in the same family, None if the

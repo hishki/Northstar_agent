@@ -859,14 +859,45 @@ def _reachable(url: str, timeout: float = 0.5) -> bool:
         return False
 
 
-def run_questions(runtime: Any, questions: list[dict]) -> list[dict]:
+_EVAL_AGENT_ID = "eval-harness"
+
+
+def run_questions(runtime: Any, questions: list[dict], langfuse_client: Any = None) -> list[dict]:
+    """`langfuse_client` is optional (None -> no tracing, matching this
+    project's graceful-degradation default): this harness calls
+    `AgentRuntime.chat_with_trace` directly, bypassing `app/api.py`'s
+    `/chat` handler entirely (see this module's header docstring), so
+    without this explicit call, running the eval would never produce a
+    Langfuse trace regardless of configured keys -- there's no HTTP layer
+    here to have done it for us. Reuses `app.observability.trace_chat_turn`,
+    the exact same helper `/chat` calls, so eval traces and real traffic
+    traces share one code path rather than two that could drift apart.
+    Every eval question is tagged with a fixed `agent_id` (`eval-harness`,
+    distinct from any real support agent's key) so eval runs are easy to
+    tell apart from live traffic in the Langfuse UI.
+    """
+    from app.observability import trace_chat_turn
+
     records = []
     for q in questions:
         qid = q["id"]
         conversation_id = conversation_id_for(qid)
+        customer_id = customer_id_for(qid)
         response, tool_call_log, token_usage = runtime.chat_with_trace(
-            q["question"], conversation_id=conversation_id, customer_id=customer_id_for(qid)
+            q["question"], conversation_id=conversation_id, customer_id=customer_id
         )
+        if langfuse_client is not None:
+            trace_chat_turn(
+                langfuse_client,
+                agent_id=_EVAL_AGENT_ID,
+                customer_id=customer_id,
+                conversation_id=conversation_id,
+                question=q["question"],
+                tool_call_log=tool_call_log,
+                token_usage=token_usage,
+                response=response,
+                latency_ms=response.latency_ms,
+            )
         records.append(
             {
                 "id": qid,
@@ -935,9 +966,13 @@ def main() -> None:
         )
         sys.exit(1)
 
+    from app.observability import get_langfuse_client
+
+    langfuse_client = get_langfuse_client(config)
+
     questions = load_questions(args.questions)
     print(f"Running {len(questions)} questions...")
-    records = run_questions(runtime, questions)
+    records = run_questions(runtime, questions, langfuse_client=langfuse_client)
 
     judge_fn = None
     judge_note = None

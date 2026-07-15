@@ -65,6 +65,16 @@ def build_tools(
                     "conflict": r.conflict,
                     "suspicious": sanitizer.is_suspicious(chunk.text),
                     "content": sanitizer.wrap(chunk),
+                    # Retrieval-debugging fields, not used by the model's own
+                    # reasoning -- but included so a Langfuse trace of this
+                    # tool call shows exactly how each result was ranked:
+                    # rrf_score (BM25+embeddings fusion, or single-mode raw
+                    # score) vs rerank_score (cross-encoder, only set when
+                    # config.retrieval.reranker actually reordered this
+                    # search -- see app/schemas.py::SearchResult).
+                    "rrf_score": r.rrf_score,
+                    "rerank_score": r.rerank_score,
+                    "score": r.score,
                 }
             )
         return out
