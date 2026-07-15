@@ -82,6 +82,24 @@ OLLAMA_BASE_URL=http://ollama:11434 docker compose --profile dockerized-ollama u
 
 This starts `qdrant`, `ollama` (a one-shot `ollama-pull` service pulls `qwen2.5:7b-instruct` into it on first boot), and `api`, all in Docker — but CPU-only inference inside the container, ~1-3 minutes per question rather than seconds.
 
+## Optional: self-hosted Langfuse (fully local tracing, no cloud account)
+
+`/chat` tracing (see [Configuration](#configuration) and `DESIGN.md`'s Security considerations) defaults to Langfuse, but works with either Langfuse Cloud (free tier, [cloud.langfuse.com](https://cloud.langfuse.com)) or a fully local, self-hosted instance via the `langfuse` Compose profile — six services (web, worker, Postgres, ClickHouse, Redis, MinIO) mirroring [Langfuse's own upstream stack](https://langfuse.com/self-hosting/deployment/docker-compose), auto-provisioning a dev project + API keys on first boot so there's no manual UI setup:
+
+```sh
+docker compose --profile langfuse up -d
+```
+
+Then set these three in `.env` (matching the profile's auto-provisioned defaults exactly — see `.env.example`):
+
+```
+LANGFUSE_PUBLIC_KEY=pk-lf-northstar-local-dev
+LANGFUSE_SECRET_KEY=sk-lf-northstar-local-dev
+LANGFUSE_HOST=http://localhost:3000
+```
+
+Open [http://localhost:3000](http://localhost:3000) (login `dev@northstar.local` / `changeme123`, from `LANGFUSE_INIT_USER_EMAIL`/`LANGFUSE_INIT_USER_PASSWORD` in `docker-compose.yml`) to watch `chat_turn` traces land as you hit `/chat`/`/chat/stream`. **Local development only** — several of the CHANGEME-marked values in `docker-compose.yml` (Postgres/ClickHouse/Redis passwords, encryption key, admin password) are fine for a single developer's machine but must never be reused anywhere reachable from an untrusted network; regenerate them (`openssl rand -hex 32` for `LANGFUSE_ENCRYPTION_KEY`, etc.) if this ever runs anywhere else.
+
 ## Tests
 
 Every module was built with its own numbered test file so a stage can be run and debugged in isolation:
